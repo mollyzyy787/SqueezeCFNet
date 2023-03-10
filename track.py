@@ -115,35 +115,5 @@ class SqueezeCFNetTracker(object):
 
         return cxy_wh_2_rect1(self.target_pos, self.target_sz)  # 1-index
 
-class AugmentedSCFNTracker(object):
-    # integrate blob tracker and template memory pool here
-    def __init__(self, im, init_rect, net_param_path, gpu=True):
-        self.gpu = gpu
-        self.config = TrackerConfig(path=net_param_path)
-        self.net = SqueezeCFNet(config)
-        self.net.load_param(config.feature_path)
-        self.net.eval()
-        if gpu:
-            self.net.cuda()
-
-        # confine results
-        target_pos, target_sz = rect1_2_cxy_wh(init_rect) #convert initial bb to pos and sz
-        self.min_sz = np.maximum(config.min_scale_factor * target_sz, 4)
-        self.max_sz = np.minimum(im.shape[:2], config.max_scale_factor * target_sz)
-
-        # crop template
-        window_sz = target_sz * (1 + config.padding)
-        bbox = cxy_wh_2_bbox(target_pos, window_sz)
-        patch = crop_chw(im, bbox, self.config.crop_sz)
-
-        target = patch - config.net_average_image
-        self.net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
-        self.target_pos, self.target_sz = target_pos, target_sz
-        self.patch_crop = np.zeros((config.num_scale, patch.shape[0], patch.shape[1], patch.shape[2]), np.float32)  # buff
-
 if __name__ == '__main__':
-    # load video from ArgumentParser
-    # track, write result
-    # record video?
-    # evaluate
     exit()

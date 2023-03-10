@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import os
 import cv2
@@ -19,8 +20,8 @@ class SqueezeCFNet_reIdTest(nn.Module):
     def __init__(self, config=None, kernel='linear'):
         super().__init__()
         self.feature_net = FeatSqueezeNet()
-        self.model_alphaf = [] #list of model_alphaf templates
-        self.model_zf = [] #list of model_zf templates
+        self.model_alphaf = []
+        self.model_zf = [] 
         self.config = config
         self.use_fire_layer = config.use_fire_layer
         self.kernel = kernel
@@ -60,8 +61,6 @@ class SqueezeCFNet_reIdTest(nn.Module):
         if self.kernel=='gaussian':
             z_map = torch.fft.irfft2(self.model_zf, norm='ortho')
             kxzf = self.gaussian_kernel_correlation(x_map, z_map)
-            #print("alphaf complex: ", torch.view_as_complex(self.model_alphaf[0]).shape)
-            #print("kxzf: ", kxzf.shape)
             response = torch.fft.irfft2(kxzf*torch.view_as_complex(self.model_alphaf), norm="ortho")
         else:
             xf = torch.view_as_real(torch.fft.rfft2(x_map, norm="ortho"))
@@ -86,8 +85,6 @@ class SqueezeCFNet_reIdTest(nn.Module):
         else:
             self.model_alphaf = (1 - lr) * self.model_alphaf.data + lr * alphaf.data
             self.model_zf = (1 - lr) * self.model_zf.data + lr * zf.data
-        #self.model_alphaf.append(alphaf)
-        #self.model_zf.append(zf)
         self.model_encode = z_encode
 
     def load_param(self, path):
@@ -121,14 +118,14 @@ class SqueezeCFNetTracker_reIdTest(object):
         patch = np.expand_dims(patch, axis=0).astype(np.float32)
 
         target = convert_format(patch, self.config.normalize, self.config.mean, self.config.std) #replaced: target = patch - config.net_average_image
-        #print(type(target), target.shape)
+
         if self.gpu:
             self.net.update(target.cuda()) #self.net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
         else:
             self.net.update(target)
         self.target_pos, self.target_sz = target_pos, target_sz
         self.patch_crop = np.zeros((self.config.num_scale, patch.shape[1], patch.shape[2], patch.shape[3]), np.float32)  # buff
-        #print(self.config.cos_window)
+
 
     def update(self, img, cand_pos):
         window_sz = self.target_sz *  (1 + self.config.padding)
@@ -147,7 +144,6 @@ class SqueezeCFNetTracker_reIdTest(object):
             self.patch_crop[i, :] = crop_chw(im, bbox, self.config.crop_sz)
 
         search = convert_format(self.patch_crop, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
-        #print("search shape: ", search.shape)
         if self.gpu:
             [response, encode] = self.net(torch.Tensor(search).cuda())
         else:
@@ -158,21 +154,16 @@ class SqueezeCFNetTracker_reIdTest(object):
         idx = idx.data.cpu().numpy()
         best_scale = np.argmax(peak)
         r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
-        #print("response size: ", response.shape)
         response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
-        #encode_dist = (encode-self.net.model_encode).pow(2).sum(1)
 
         if r_max > self.config.net_input_size[0] / 2:
             r_max = r_max - self.config.net_input_size[0]
         if c_max > self.config.net_input_size[1] / 2:
             c_max = c_max - self.config.net_input_size[1]
         window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
-        #print(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
         pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
-        #print(pos_diff)
         psr = PSR(response_best_scale)
         apce = APCE(response_best_scale)
-        #return pos_diff, psr, apce, encode_dist[best_scale]
         return pos_diff, psr, apce, []
 
     def runRotationAnalysis(self, im, cand_pos):
@@ -228,7 +219,6 @@ class DCFNetTracker_reIdTest(object):
         self.net.update(target.cuda()) #self.net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
         self.target_pos, self.target_sz = target_pos, target_sz
         self.patch_crop = np.zeros((self.config.num_scale, patch.shape[1], patch.shape[2], patch.shape[3]), np.float32)  # buff
-        #print(self.config.cos_window)
 
     def update(self, img, cand_pos):
         window_sz = self.target_sz *  (1 + self.config.padding)
@@ -255,7 +245,6 @@ class DCFNetTracker_reIdTest(object):
         idx = idx.data.cpu().numpy()
         best_scale = np.argmax(peak)
         r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
-        #print("response size: ", response.shape)
         response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
 
 
@@ -264,9 +253,7 @@ class DCFNetTracker_reIdTest(object):
         if c_max > self.config.net_input_size[1] / 2:
             c_max = c_max - self.config.net_input_size[1]
         window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
-        #print(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
         pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
-        #print(pos_diff)
         psr = PSR(response_best_scale)
         apce = APCE(response_best_scale)
         return pos_diff, psr, apce, []
@@ -369,7 +356,6 @@ def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=F
                 APCE_p_list.append(APCE_p)
                 pos_diff_p_list.append(pos_diff_p)
                 score_p = PSR_p*10 - pos_diff_p
-                #print("score p: ", score_p)
                 score_p_list.append(score_p)
             else:
                 pos_diff_n, PSR_n, APCE_n, encode_dist_n = tracker.runResponseAnalysis(img, cand_pos)
@@ -387,7 +373,6 @@ def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=F
                 APCE_n_list.append(APCE_n)
                 pos_diff_n_list.append(pos_diff_n)
                 score_n = PSR_n*10 - pos_diff_n
-                #print("score n: ", score_n)
                 score_n_list.append(score_n)
         if min_dist_correct:
             correct_dist_count += 1
@@ -418,9 +403,6 @@ def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=F
     return PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list, APCE_p_list, APCE_n_list, acc_list
 
 def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_path=None, update=False):
-
-    #train_dataset = FNTDataset(json_file_path, train=True, normalize=True)
-    #print("total number of train images: ", len(train_dataset)) #7427 for regular FathomNet, 828 for mini
     val_dataset = FNTDataset(json_file_path, train=False, normalize=True)
     print("total number of val images: ", len(val_dataset)) #818 for regular FathomNet, 87 for mini
     species_list = val_dataset.get_species_list()
@@ -457,8 +439,6 @@ def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_
         learn_idx = name2num[species_learn]
         for item in item_paths:
             # initialize tracker template
-            print(item)
-            print(item_id)
             img = cv2.imread(item)
             img_h, img_w, _ = img.shape
             init_rect = [img_w/3, img_h/3, img_w/3, img_h/3]
@@ -482,7 +462,6 @@ def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_
                         enc_dist_test = []
                         for testItem in items2test:
                             img_test = cv2.imread(testItem)
-                            print(testItem)
                             pos_diff, PSR, APCE, enc_dist = tracker.runResponseAnalysis(img_test, target_pos)
                             pos_diff_test.append(pos_diff)
                             PSR_test.append(PSR)
@@ -490,8 +469,6 @@ def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_
                             enc_dist_test.append(enc_dist)
                         avgPSR_conf[learn_idx][test_idx] = list_mean(PSR_test)
                         avgAPCE_conf[learn_idx][test_idx] = list_mean(APCE_test)
-                        #if tracker_model == 'squeezeCF':
-                        #    avgEnc_dist[learn_idx][test_idx] = list_mean(enc_dist_test)
             else:
                 if update:
                     if tracker_model == 'hog':
@@ -506,8 +483,6 @@ def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_
             item_id += 1
         avgPSR_conf[learn_idx][learn_idx] = list_mean(PSR_list_ego)
         avgAPCE_conf[learn_idx][learn_idx] = list_mean(APCE_list_ego)
-        #if tracker_model == 'squeezeCF':
-        #    avgEnc_conf[learn_idx][learn_idx] = list_mean(enc_dist_list_ego)
 
     print("avgPSR_conf: ", avgPSR_conf)
     print("avgAPCE_conf: ", avgAPCE_conf)
@@ -569,65 +544,66 @@ def processRotationTest(imSeq_dir, SqueezeCFnet_param_path, DCFnet_param_path):
 
 
 if __name__ == '__main__':
-    SqueezeCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'apce_enc_200ep_1e-4_best.pt')
+
+    parser = argparse.ArgumentParser(description='Testing SqueezeCFNet with baselines in Pytorch 1.12.1')
+    parser.add_argument('--seq-root', dest='dataset_root', default='', type=str, help='directory to all image sequence folders')
+    parser.add_argument('--json-path', dest='json_file_path', default='', type=str, help='path to dataset *.json file')
+    parser.add_argument('--test-mode', dest='test_mode', default=0, type=int, metavar='N',
+                        help='testing mode. default 0: test performance on image sequence data; 1: test on FathomNet training data; 2: test rotational invariance on image sequence data')
+
+
+    args = parser.parse_args()
+
+    SqueezeCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'apce_enc_200ep_1e-4_best.pt') #or replace with other set of trained parameters
     DCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'model_best_DCFnet_200ep.pt')
-    dataset_root = '/media/molly/MR_GRAY/DCNNCF_testset'
-    json_file_path = '~/DCNN_CF/curate_dataset/data_sample/FathomNet.json'
-    json_file_path = os.path.expanduser(json_file_path)
+    dataset_root = args.dataset_root
+    json_file_path = args.json_file_path
     seqs = dataset_root + '/*/'
-    out = dict()
-    test_mode = 'test_rot'
-    if test_mode == 'test_seq':
-        out["PSR_p_lists"] = dict()
-        out["PSR_n_lists"] = dict()
-        out["APCE_p_lists"] = dict()
-        out["APCE_n_lists"] = dict()
-        out["acc_list"] = dict()
-        out["pos_diff_p_lists"] = dict()
-        FPr_total = []
-        FNr_total = []
-        PSR_p_total = []
-        PSR_n_total = []
-        pos_diff_p_total = []
-        pos_diff_n_total = []
-        for imSeq_dir in glob.glob(seqs):
-            print(imSeq_dir)
-            seqName = imSeq_dir.split('/')[-2]
-            print(seqName)
-            PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list, APCE_p_list, APCE_n_list, acc_list \
-                = processTestImSeq(imSeq_dir, SqueezeCFnet_param_path, model='squeezeCF', update=False)
-            #PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list= processImSeqHoG(imSeq_dir, update=False)
-            #PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list= processImSeqDCFNet(imSeq_dir, DCFnet_param_path)
-            if PSR_p_list and PSR_n_list:
-                """
-                PSR_thresh = 0.3*min(PSR_p_list) + 0.7*max(PSR_n_list)
-                print("PSR threshold: ", PSR_thresh)
-                FPs = [PSR_n for PSR_n in PSR_n_list if PSR_n > PSR_thresh]
-                FPr = len(FPs)/len(PSR_n_list)
-                FNs = [PSR_p for PSR_p in PSR_p_list if PSR_p < PSR_thresh]
-                FNr = len(FNs)/len(PSR_p_list)
-                print("     FPr: ", FPr)
-                print("     FNr: ", FNr)
-                FPr_total.append(FPr)
-                FNr_total.append(FNr)
-                """
-                out["PSR_p_lists"][seqName] = PSR_p_list
-                out["PSR_n_lists"][seqName] = PSR_n_list
-                out["APCE_p_lists"][seqName] = APCE_p_list
-                out["APCE_n_lists"][seqName] = APCE_n_list
-                out["acc_list"][seqName] = acc_list
-                out["pos_diff_p_lists"][seqName] = pos_diff_p_list
-        scipy.io.savemat('test.mat', out)
-    elif test_mode == 'test_FathomNet':
-        avgPSR_conf, avgAPCE_conf, avgEnc_conf = processTrainValDataset(json_file_path,
-                                            tracker_model='hog', \
-                                            net_param_path=SqueezeCFnet_param_path,
-                                            update=True)
-        out["PSR_conf"] = avgPSR_conf
-        out["APCE_conf"] = avgAPCE_conf
-        out["avgEnc_conf"] = avgEnc_conf
-        scipy.io.savemat('test_FathomNet.mat', out)
-    else:
+    test_mode = args.test_mode
+    test_models = ['squeezeCF', 'DCFNet', 'hog']
+    if test_mode == 0: #test re-id on image sequence data
+        print("Testing re-id on image sequence data")
+        for model in test_models:
+            out = dict()
+            out["PSR_p_lists"] = dict()
+            out["PSR_n_lists"] = dict()
+            out["APCE_p_lists"] = dict()
+            out["APCE_n_lists"] = dict()
+            out["acc_list"] = dict()
+            out["pos_diff_p_lists"] = dict()
+            FPr_total = []
+            FNr_total = []
+            PSR_p_total = []
+            PSR_n_total = []
+            pos_diff_p_total = []
+            pos_diff_n_total = []
+            for imSeq_dir in glob.glob(seqs):
+                seqName = imSeq_dir.split('/')[-2]
+                PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list, APCE_p_list, APCE_n_list, acc_list \
+                    = processTestImSeq(imSeq_dir, SqueezeCFnet_param_path, model=model, update=False)
+                if PSR_p_list and PSR_n_list:
+                    out["PSR_p_lists"][seqName] = PSR_p_list
+                    out["PSR_n_lists"][seqName] = PSR_n_list
+                    out["APCE_p_lists"][seqName] = APCE_p_list
+                    out["APCE_n_lists"][seqName] = APCE_n_list
+                    out["acc_list"][seqName] = acc_list
+                    out["pos_diff_p_lists"][seqName] = pos_diff_p_list
+            scipy.io.savemat('testImSeq_'+model+'.mat', out)
+    elif test_mode == 1: #test on FathomNet training data
+        print("Testing re-id on FathomNet training data")
+        for model in test_models:
+            out = dict()
+            avgPSR_conf, avgAPCE_conf, avgEnc_conf = processTrainValDataset(json_file_path,
+                                                tracker_model=model, \
+                                                net_param_path=SqueezeCFnet_param_path,
+                                                update=True)
+            out["PSR_conf"] = avgPSR_conf
+            out["APCE_conf"] = avgAPCE_conf
+            out["avgEnc_conf"] = avgEnc_conf
+            scipy.io.savemat('testFathomNet_'+model+'.mat', out)
+    else: #test rotational invariance on image sequence data
+        print("Testing rotational invariance on image sequence data")
+        out = dict()
         hog_PSRs_total = np.empty((0,5))
         hog_APCEs_total = np.empty((0,5))
         SCF_PSRs_total = np.empty((0,5))
@@ -635,7 +611,6 @@ if __name__ == '__main__':
         DCF_PSRs_total = np.empty((0,5))
         DCF_APCEs_total = np.empty((0,5))
         for imSeq_dir in glob.glob(seqs):
-            print(imSeq_dir)
             seqName = imSeq_dir.split('/')[-2]
             hog_PSRs_seq, hog_APCEs_seq, SCF_PSRs_seq, SCF_APCEs_seq, DCF_PSRs_seq, DCF_APCEs_seq \
               = processRotationTest(imSeq_dir, SqueezeCFnet_param_path, DCFnet_param_path)
