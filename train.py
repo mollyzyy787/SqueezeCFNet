@@ -21,43 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from models.squeezeCFnet import FeatSqueezeNet, SqueezeCFNet
 from dataset import FNTDataset
-
-
-def gaussian_shaped_labels(sigma, sz):
-    x, y = np.meshgrid(np.arange(1, sz[0]+1) - np.floor(float(sz[0]) / 2), np.arange(1, sz[1]+1) - np.floor(float(sz[1]) / 2))
-    d = x ** 2 + y ** 2
-    g = np.exp(-0.5 / (sigma ** 2) * d)
-    g = np.roll(g, int(-np.floor(float(sz[0]) / 2.) + 1), axis=0)
-    g = np.roll(g, int(-np.floor(float(sz[1]) / 2.) + 1), axis=1)
-    return g.astype(np.float32)
-
-def unravel_index(
-    indices: torch.Tensor,
-    shape: tuple[int, ...],
-) -> torch.Tensor:
-    r"""Converts flat indices into unraveled coordinates in a target shape.
-
-    This is a `torch` implementation of `numpy.unravel_index`.
-
-    Args:
-        indices: A tensor of indices, (*, N).
-        shape: The targeted shape, (D,).
-
-    Returns:
-        unravel coordinates, (*, N, D).
-    """
-
-    shape = torch.tensor(shape)
-    indices = indices % shape.prod()  # prevent out-of-bounds indices
-
-    coord = torch.zeros(indices.size() + shape.size(), dtype=int)
-
-    for i, dim in enumerate(reversed(shape)):
-        coord[..., i] = indices % dim
-        indices = torch.div(indices, dim, rounding_mode='floor')
-
-    return coord.flip(-1)
-
+from utils import gaussian_shaped_labels, unravel_index
 
 class TrackerConfig(object):
     crop_sz = 200 #network input size is 200x200
@@ -155,7 +119,7 @@ def train(train_loader, model, loss_mode, optimizer, target, epoch):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     loc_losses = AverageMeter()
-    psr_losses = AverageMeter()
+    cf_losses = AverageMeter()
     enc_losses = AverageMeter()
     losses = AverageMeter()
 
@@ -192,16 +156,15 @@ def train(train_loader, model, loss_mode, optimizer, target, epoch):
         #print("p_response PSR: ", psr_loss(p_response).item())
         #print("n_response PSR: ", psr_loss(n_response).item())
         #lossPSR = - psr_loss(p_response) + psr_loss(n_response)
-        lossPSR = - apce_loss(p_response) + apce_loss(n_response)
-        #loss1 = lossmap+lossPSR
-        loss1 = lossPSR
-        loss2 = enc_loss(x_encode, z_encode, n_encode)
-        total_loss = loss1+loss2
-        if loss_mode == "psr":
+        lossAPCE = - apce_loss(p_response) + apce_loss(n_response)
+        lossCF = lossAPCE
+        lossENC = enc_loss(x_encode, z_encode, n_encode)
+        total_loss = lossCF+lossENC
+        if loss_mode == "cf":
              # compute gradient and do SGD step
-            loss1.backward()
+            lossCF.backward()
         elif loss_mode == "enc":
-            loss2.backward()
+            lossENC.backward()
         elif loss_mode == 'map':
             lossmap.backward()
         else:
@@ -212,8 +175,8 @@ def train(train_loader, model, loss_mode, optimizer, target, epoch):
         # measure accuracy and record loss
         losses.update(total_loss.item())
         loc_losses.update(lossmap.item())
-        psr_losses.update(lossPSR.item())
-        enc_losses.update(loss2.item())
+        cf_losses.update(lossCF.item())
+        enc_losses.update(lossENC.item())
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -227,7 +190,7 @@ def train(train_loader, model, loss_mode, optimizer, target, epoch):
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses))
     writer.add_scalar('Train/map MSE loss', loc_losses.avg, epoch)
-    writer.add_scalar('Train/APCE loss', psr_losses.avg, epoch )
+    writer.add_scalar('Train/CF loss', cf_losses.avg, epoch )
     writer.add_scalar('Train/encoding loss', enc_losses.avg, epoch)
     writer.add_scalar('Train/total loss', losses.avg, epoch)
 
@@ -257,16 +220,16 @@ def validate(val_loader, model, loss_mode, target, epoch):
             # compute loss
             #lossmap = loc_loss(p_response, target)/template.size(0)
             #lossPSR = - psr_loss(p_response) + psr_loss(n_response)
-            lossPSR = -apce_loss(p_response) + apce_loss(n_response)
+            lossAPCE = -apce_loss(p_response) + apce_loss(n_response)
             #loss1 = lossmap + lossPSR
-            loss1=lossPSR
-            loss2 = enc_loss(x_encode, z_encode, n_encode)
-            loss_total=loss1+loss2
+            lossCF=lossAPCE
+            lossENC = enc_loss(x_encode, z_encode, n_encode)
+            loss_total=lossCF+lossENC
 
-            if loss_mode == "psr":
-                loss_focus = loss1
+            if loss_mode == "cf":
+                loss_focus = lossCF
             elif loss_mode == "enc":
-                loss_focus = loss2
+                loss_focus = lossENC
             else:
                 loss_focus = loss_total
             losses_focus.update(loss_focus.item())
@@ -311,6 +274,9 @@ if __name__ == '__main__':
                         metavar='W', help='weight decay (default: 5e-5)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
     parser.add_argument('--pretrained', default=False, type=bool, help='whether the checkpoint resumed from is a pretrained model')
+    parser.add_argument('--train_mode', default=0, type=int, metavar='N',
+                        help='training mode, default 0: train with both cf and encoding loss; 1: train with cf loss only')
+
 
     args = parser.parse_args()
 
@@ -334,11 +300,11 @@ if __name__ == '__main__':
     optimizer_enc = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-    optimizer_psr = torch.optim.SGD(model.parameters(), args.lr,
+    optimizer_cf = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
     lr_scheduler_enc = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_enc, verbose=True)
-    lr_scheduler_psr = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_psr, verbose=True)
+    lr_scheduler_cf = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_cf, verbose=True)
 
     target = torch.Tensor(config.y).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size * gpu_num, 1, 1, 1)  # for training
     #target_n = torch.Tensor(config.yn).cuda().unsqueeze(0).unsqueeze(0).repeat(args.batch_size * gpu_num, 1, 1, 1)  # for training
@@ -361,7 +327,7 @@ if __name__ == '__main__':
                 best_loss = checkpoint['best_loss']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer_enc.load_state_dict(checkpoint['optimizer_enc'])
-            optimizer_psr.load_state_dict(checkpoint['optimizer_psr'])
+            optimizer_cf.load_state_dict(checkpoint['optimizer_cf'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
@@ -399,28 +365,27 @@ if __name__ == '__main__':
 
     for epoch in range(args.start_epoch, args.epochs):
 
-        train_psr = (int(epoch/10)%2 == 0)
+        if args.train_mode == 0:
+            train_cf = (int(epoch/10)%2 == 0) #staggering training for two types of losses
+        else:
+            train_cf = True #train on cf loss only
 
-        if train_psr: #staggering training for two types of losses
+        if train_cf: 
             # train for one epoch
-            print("training for PSR error")
-            train(train_loader, model, "psr", optimizer_psr, target, epoch)
+            print("training for CF error")
+            train(train_loader, model, "cf", optimizer_cf, target, epoch)
             # evaluate on validation set
-            loss, total_loss = validate(val_loader, model, "psr", target, epoch)
-            lr_scheduler_psr.step(loss)
+            loss, total_loss = validate(val_loader, model, "cf", target, epoch)
+            lr_scheduler_cf.step(loss)
         else:
             print("training for encoding error")
             train(train_loader, model, "enc", optimizer_enc, target, epoch)
             loss, total_loss = validate(val_loader, model, "enc", target, epoch)
             lr_scheduler_enc.step(loss)
 
-        #train(train_loader, model, "psr", optimizer_psr, target, epoch)
-        #loss, total_loss = validate(val_loader, model, "psr", target, epoch)
-        #lr_scheduler_psr.step(loss)
-
-        writer.add_scalar('Train/psr_lr', optimizer_psr.param_groups[0]['lr'], epoch)
+        writer.add_scalar('Train/cf_lr', optimizer_cf.param_groups[0]['lr'], epoch)
         writer.add_scalar('Train/enc_lr', optimizer_enc.param_groups[0]['lr'], epoch)
-        #writer.add_scalar('Train/psr_lr', optimizer_psr.param_groups[0]['lr'], epoch)
+
         # remember best loss and save checkpoint
         is_best = loss < best_loss
         best_loss = min(best_loss, loss)
@@ -429,8 +394,8 @@ if __name__ == '__main__':
             'state_dict': model.state_dict(),
             'best_loss': best_loss,
             'optimizer_enc': optimizer_enc.state_dict(),
-            'optimizer_psr': optimizer_psr.state_dict(),
-            'lr_scheduler_psr' : lr_scheduler_psr.state_dict(),
+            'optimizer_psr': optimizer_cf.state_dict(),
+            'lr_scheduler_psr' : lr_scheduler_cf.state_dict(), #pretrained parameter in checkpoints/ are uunder the name "psr" for "cf"
             'lr_scheduler_enc' : lr_scheduler_enc.state_dict(),
         }, is_best, save_param_path)
 
