@@ -130,8 +130,8 @@ def analyzeImSeq(imSeq_dir, result_path, DCFNet_param_path, SqueezeCFnet_param_p
 if __name__ == '__main__':
     SqueezeCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'apce_enc_200ep_1e-4_best.pt')
     DCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'model_best_DCFnet_200ep.pt')
-    result_path = '/media/molly/MR_GRAY/DCNNCF_test_result'
-    imSeq_dir = '/media/molly/MR_GRAY/DCNNCF_testset/mo15_left'
+    result_path = 'Your_result_path'
+    imSeq_dir = 'Your_imSeq_dir'
     """
     processImSeq('/media/molly/MR_GRAY/DCNNCF_testset/mo20_left', net_param_path,
                 result_path, True)

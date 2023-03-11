@@ -113,7 +113,7 @@ def test_tracker_speed(img_folder, tracker, tracker_model):
 if __name__ == '__main__':
     SqueezeCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'apce_enc_200ep_1e-4_best.pt')
     DCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'model_best_DCFnet_200ep.pt')
-    imSeq_dir = '/media/molly/MR_GRAY/DCNNCF_testset/mo15_left'
+    imSeq_dir = 'Your_imSeq_dir' # Replace with image sequence directory
     annotation_path = glob.glob(os.path.join(imSeq_dir, '*.json'))[0]
     annotation = parseManualAnnotation(annotation_path)
     for obj in annotation[0]:
@@ -123,11 +123,11 @@ if __name__ == '__main__':
     img0 = cv2.imread(img0_path)
     SCF_tracker = SqueezeCFNetTracker_light(img0, init_rect, SqueezeCFnet_param_path, gpu=False)
     DCF_tracker = DCFNetTracker(img0, init_rect, DCFnet_param_path, gpu=False)
-    #hog_tracker = KCF_HOG()
-    #hog_tracker.init(img0, init_rect)
+    hog_tracker = KCF_HOG()
+    hog_tracker.init(img0, init_rect)
     SCF_fps = test_tracker_speed(imSeq_dir, SCF_tracker,'SCF')
     print("SCF: ", SCF_fps)
     DCF_fps = test_tracker_speed(imSeq_dir, DCF_tracker,'DCF')
     print("DCF: ", DCF_fps)
-    #hog_fps = test_tracker_speed(imSeq_dir, hog_tracker,'hog')
-    #print("hog: ", hog_fps)
+    hog_fps = test_tracker_speed(imSeq_dir, hog_tracker,'hog')
+    print("hog: ", hog_fps)

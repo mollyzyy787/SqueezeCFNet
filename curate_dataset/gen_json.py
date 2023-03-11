@@ -37,5 +37,5 @@ def create_Vid_json(dataset_root, dataset_name, val=0.1):
     return dataset
 
 if __name__ == '__main__':
-    dataset_root = "/media/molly/MR_GRAY/DCNNCF_trainingset/FathomNet_wrap" # replace the directory
+    dataset_root = "Your_dataset_root" # replace the directory
     dataset = create_FathomNet_json(dataset_root, "FathomNet_wrap")
