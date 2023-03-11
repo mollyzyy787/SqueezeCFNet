@@ -5,9 +5,23 @@ in long-term DCF Tracking <br>
 **Documentation to be updated
 
 ## Environment
+See `requirement.txt`
 
 ## Models
 
+#### KCF with HOG
+`KCF_HOG()` in `baseline/kcf.py` is the only version, used in testing and demo
+#### DCFNet
+`DCFNet()` in `models/DCFnet.py` is for training, which takes (template, search) as input for the `forward` method <br>
+`DCFNet()` in `models/DCFnet_track.py` is for tracking and re-id testing in `test.py`, which only takes (search) as input for the `forward` method, and updates the template in the `update` method. <br>
+`DCFNetTracker()` in `models/DCFnet_track.py` can be used for continous tracking with the `track` method <br>
+`DCFNetTracker_reIdTest()` in `test.py` is used for re-id test with special methods `runResponseAnalysis`, `runRotationAnalysis`<br>
+#### SqueezeCFNet
+`SqueezeCFNet()` in `models/squeezeCFnet.py` is for training, which takes (template, search, negative) as input for the `forward` method <br>
+`SqueezeCFNet()` in `models/squeezeCFnet_track.py` is for tracking and re-id testing in `test.py`, which only takes (search) as input for the `forward` method, and updates the template in the `update` method. <br>
+`SqueezeCFNet_light()` in `models/squeezeCFnet_track.py` is for tracking and speed testing in `speed_test.py`, which skips the encoding stage and only process the shallow part of the network in forward pass.
+`SqueezeCFNetTracker()` in `models/track.py` can be used for continous tracking with the `track` method <br>
+`SqueezeCFNetTracker_reIdTest()` in `test.py` is used for re-id test with special methods `runResponseAnalysis`, `runRotationAnalysis` <br>
 
 ##  Step 1: Curate dataset
 Raw training and validation data are downloaded from [FathomNet](https://www.mbari.org/data/fathomnet/) using the [fathomnet-py](https://fathomnet-py.readthedocs.io/en/latest/) API. Examples of the raw FathomNet data are `curate_dataset/data_sample/FathomNet_sample.*` <br>
@@ -24,7 +38,8 @@ $ python train.py --dataset <path-to-dataset *.json file> [options]
 $ python train_DCFNet.py --dataset <path-to-dataset *.json file> [options]
 ```
 
-## Step 3: Test
+## Step 3: Test and Demo
+### Testing on re-identification performance
 ```console
 $ python test.py --seq-root <root directory to image sequence folders> --json-path <path to dataset *.json file> --test-mode <0:re-id on image sequence, 1:re-id on FathomNet training set, 2:re-id on transformation>
 ```
@@ -44,6 +59,9 @@ The image sequences for testing need to be of the following structure. Each imag
 │   │   ├── *.jpg
 │   │   ├── annotation.json
 ```
+### Demo
+
+
 
 ### Acknowledgement
 The KCF with HOG feature tracker in `baseline` referenced [pyTrackers](https://github.com/fengyang95/pyCFTrackers) under the MIT license. <br>
