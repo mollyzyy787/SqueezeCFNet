@@ -21,6 +21,7 @@ $ python test.py --seq-root <root directory to image sequence folders> --json-pa
 ```
 #### Test image sequence folder structure
 The image sequences for testing need to be of the following structure. Each image sequence comes from a continous tracked video. The anntoation is done at every 50 frames using the [VGG Image Annotator](https://www.robots.ox.ac.uk/~vgg/software/via/). An example of the json annotation file can be found at `curate_dataset/data_sample/annotation.json`.<br>
+```
 ├── seq-root
 │   ├── seq1
 │   │   ├── *.jpg
@@ -33,6 +34,7 @@ The image sequences for testing need to be of the following structure. Each imag
 │   │   ├── str(frame_number).zfill(6).jpg
 │   │   ├── *.jpg
 │   │   ├── annotation.json
+```
 
 ### Acknowledgement
 The KCF with HOG feature tracker in `baseline` referenced [pyTrackers](https://github.com/fengyang95/pyCFTrackers) under the MIT license. <br>

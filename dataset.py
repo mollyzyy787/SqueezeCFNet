@@ -104,60 +104,6 @@ class FNTDataset(Dataset):
         return self.json_r
 
 
-
-
-class UWTDataset(Dataset):
-    """ underwater tracking dataset
-    """
-    def __init__(self, file, root, range, train=True, transform=None):
-        self.json_r = json.load(open(file,'r'))
-        self.root = root
-        self.range = range
-        self.train = train
-        #Todo: modify input size
-        self.mean = np.expand_dims(np.expand_dims(np.array([109, 120, 119]), axis=1), axis=1).astype(np.float32)
-        self.transform = transform
-
-
-    def __getitem__(self, item):
-        if self.train:
-            target_info = self.json_r['train_set'][item]
-        else:
-            target_info = self.json_['val_set'][item]
-            #target_info contains: video_id, target_id
-
-        target_id = target_info['target_id']
-        video_id = target_info['video_id']
-        search_id = np.random.randint(1, min(range_up, self.range+1)) + target_id
-        negvid = 0 #any int in range != video_id
-        negative_id = 0 #random
-        #To do:
-        #create search_id in terms of target_id
-        #create negative_id to find a negative example
-        #also load target_rot (target_rot is only used in mode that trains encoding only)
-        #To do make sure target and search comes from the same video
-        # and make sure target and negative comes from a different video
-        if self.transform:
-            target = self.transform(target)
-
-        target = cv2.imread(os.path.join(self.root, video_id, '{:08d}.jpg'.format(target_id)))
-        search = cv2.imread(os.path.join(self.root, video_id, '{:08d}.jpg'.format(search_id)))
-        negative = cv2.imread(os.path.join(self.root, negvid, '{:08d}.jpg'.format(negative_id)))
-
-        target = np.transpose(target, (2, 0, 1)).astype(np.float32) - self.mean
-        search = np.transpose(search, (2, 0, 1)).astype(np.float32) - self.mean
-        negative = np.transpose(negative, (2, 0, 1)).astype(np.float32) - self.mean
-        #target_rot = rotate target any degree from 30 to 330
-
-        #target_rot is only used for encoding only training stage
-        return target, search, negative #and target_rot
-
-    def __len__(self):
-        if self.train:
-            return len(self.json_r['train_set'])
-        else:
-            return len(self.json_r['val_set'])
-
 def batch_mean_and_sd(loader):
 
     cnt = 0
@@ -182,15 +128,9 @@ def batch_mean_and_sd(loader):
     return mean,std
 
 if __name__ == '__main__':
-    # test if the dataset can load correctly
-    #config = TrackerConfig()
-    #model = SqueezeCFNet(config=config)
-    #model = model.cuda()
-    #criterion1 = torch.nn.MSELoss().cuda()
-    #criterion2 = TripletLoss().cuda()
 
     # FathomNet_mini
-    json_file_path = '~/DCNN_CF/curate_dataset/data_sample/FathomNet.json'
+    json_file_path = '~/DCNN_CF/curate_dataset/data_sample/FathomNet.json' # replace with dataset *json file path
     json_file_path = os.path.expanduser(json_file_path)
     # compute dataset mean and std
     train_dataset = FNTDataset(json_file_path, True, False)
@@ -204,8 +144,8 @@ if __name__ == '__main__':
         train_dataset, batch_size = 1, shuffle=True,
         num_workers=2, pin_memory=True, drop_last=True)
 
-    #mean, std = batch_mean_and_sd(train_loader)
-    #print("mean and std: \n", mean, std)
+    mean, std = batch_mean_and_sd(train_loader)
+    print("mean and std: \n", mean, std)
 
     # for FathomNet_mini: mean=48.89 std=32.44
     # for FathomNet: mean = 42.14 std=32.12
@@ -224,15 +164,3 @@ if __name__ == '__main__':
             cv2.imwrite(os.path.join(sample_result_path, str(i).zfill(6)+"_template.jpg"), template_show)
             cv2.imwrite(os.path.join(sample_result_path, str(i).zfill(6)+"_search.jpg"), search_show)
             cv2.imwrite(os.path.join(sample_result_path, str(i).zfill(6)+"_negative.jpg"), negative_show)
-
-        #template = template.cuda(non_blocking=True)
-        #search = search.cuda(non_blocking=True)
-        #negative = negative.cuda(non_blocking=True)
-
-        #print(type(template), template.shape, template.dtype)
-
-        #p_response, n_response, z_encode, x_encode, n_encode = model(template, search, negative)
-        #loss1 = criterion1(p_response, target)
-        #loss2 = criterion2(x_encode, z_encode, n_encode)
-        #loss = loss1 + loss2
-        #print(loss)
