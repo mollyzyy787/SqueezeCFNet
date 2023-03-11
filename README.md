@@ -8,7 +8,11 @@ in long-term DCF Tracking <br>
 
 ## Models
 
+
 ##  Step 1: Curate dataset
+Raw training and validation data are downloaded from [FathomNet](https://www.mbari.org/data/fathomnet/) using the [fathomnet-py](https://fathomnet-py.readthedocs.io/en/latest/) API. Examples of the raw FathomNet data are `curate_dataset/data_sample/FathomNet_sample.*` <br>
+Then run `curate_dataset/gen_patch.py` to generate training and validation image patches. Replace `folder_list` directory to the root directory of raw FathomNet data, and `dataset_root` directory with a new directory for generated training and validation image patches. <br>
+Then run `curate_dataset/gen_json.py` (Replace `dataset_root` with the directory of the generated image patches) to generate the dataset json file that links to all the image patches. Some examples of the json files are `curate_dataset/data_sample/FathomNet*.json`
 
 ## Step 2: Train
 #### Train SqueezeCFNet

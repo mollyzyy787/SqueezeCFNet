@@ -107,8 +107,8 @@ if __name__ == '__main__':
     """
 
     # generate image patches for regular sized FathomNet dataset
-    folder_list = glob.glob(r"/media/molly/MR_GRAY/FathomNet/*/")
-    dataset_root = "/media/molly/MR_GRAY/DCNNCF_trainingset/FathomNet_wrap"
+    folder_list = glob.glob(r"/media/molly/MR_GRAY/FathomNet/*/") # Replace the directory
+    dataset_root = "/media/molly/MR_GRAY/DCNNCF_trainingset/FathomNet_wrap" # Replace the directory
     out_sz = args.output_size
     padding = args.padding
     selected_species = ["solmissus", "lampocteis_cruentiventer", "mitrocoma",
