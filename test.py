@@ -21,7 +21,7 @@ class SqueezeCFNet_reIdTest(nn.Module):
         super().__init__()
         self.feature_net = FeatSqueezeNet()
         self.model_alphaf = []
-        self.model_zf = [] 
+        self.model_zf = []
         self.config = config
         self.use_fire_layer = config.use_fire_layer
         self.kernel = kernel
@@ -546,7 +546,7 @@ def processRotationTest(imSeq_dir, SqueezeCFnet_param_path, DCFnet_param_path):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Testing SqueezeCFNet with baselines in Pytorch 1.12.1')
-    parser.add_argument('--seq-root', dest='dataset_root', default='', type=str, help='directory to all image sequence folders')
+    parser.add_argument('--seq-root', dest='dataset_root', default='', type=str, help='root directory to all of the image sequence folders')
     parser.add_argument('--json-path', dest='json_file_path', default='', type=str, help='path to dataset *.json file')
     parser.add_argument('--test-mode', dest='test_mode', default=0, type=int, metavar='N',
                         help='testing mode. default 0: test performance on image sequence data; 1: test on FathomNet training data; 2: test rotational invariance on image sequence data')
@@ -596,7 +596,7 @@ if __name__ == '__main__':
             avgPSR_conf, avgAPCE_conf, avgEnc_conf = processTrainValDataset(json_file_path,
                                                 tracker_model=model, \
                                                 net_param_path=SqueezeCFnet_param_path,
-                                                update=True)
+                                                update=False)
             out["PSR_conf"] = avgPSR_conf
             out["APCE_conf"] = avgAPCE_conf
             out["avgEnc_conf"] = avgEnc_conf

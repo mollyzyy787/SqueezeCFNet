@@ -28,8 +28,8 @@ def crop_region(image, bbox, out_sz, padding):
     mapping = np.array([[a, 0, c],
                         [0, b, d]]).astype(np.float32) #shift the image to center the target and resize
     #crop = cv2.warpAffine(image, mapping, (out_sz, out_sz), borderMode=cv2.BORDER_REPLICATE)
-    #crop = cv2.warpAffine(image, mapping, (out_sz, out_sz), borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
-    crop = cv2.warpAffine(image, mapping, (out_sz, out_sz), borderMode=cv2.BORDER_WRAP)
+    crop = cv2.warpAffine(image, mapping, (out_sz, out_sz), borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
+    #crop = cv2.warpAffine(image, mapping, (out_sz, out_sz), borderMode=cv2.BORDER_WRAP)
     crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     return crop_gray
 
