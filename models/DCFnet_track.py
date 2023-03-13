@@ -179,3 +179,70 @@ class DCFNetTracker(object):
         else:
             self.net.update(torch.Tensor(target), lr=self.config.interp_factor)
         return cxy_wh_2_rect1(self.target_pos, self.target_sz)  # 1-index
+
+    """
+    The following methods are used for reId tests only, not tracking
+    """
+    def update(self, img, cand_pos):
+        window_sz = self.target_sz *  (1 + self.config.padding)
+        bbox  = cxy_wh_2_bbox(cand_pos, window_sz)
+        new_template = crop_chw(img, bbox, self.config.crop_sz)
+        new_template = convert_format(new_template[None, :], self.config.normalize, self.config.mean, self.config.std)
+        self.net.update(torch.Tensor(new_template).cuda())
+
+    def runResponseAnalysis(self, im, cand_pos):
+        for i in range(self.config.num_scale):  # crop multi-scale search region
+            window_sz = self.target_sz * (self.config.scale_factor[i] * (1 + self.config.padding))
+            bbox = cxy_wh_2_bbox(cand_pos, window_sz)
+            self.patch_crop[i, :] = crop_chw(im, bbox, self.config.crop_sz)
+
+        search = convert_format(self.patch_crop, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
+
+        if self.gpu:
+            response = self.net(torch.Tensor(search).cuda())
+        else:
+            response = self.net(torch.Tensor(search))
+        #print("response: ", response.shape) #(1, 3, 48, 48) for gaussian kernel, (3, 1, 48, 48) for linear kernel
+        peak, idx = torch.max(response.view(self.config.num_scale, -1), 1) #(3, 48*48)
+        peak = peak.data.cpu().numpy() * self.config.scale_penalties
+        idx = idx.data.cpu().numpy()
+        best_scale = np.argmax(peak)
+        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
+        response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
+
+
+        if r_max > self.config.net_input_size[0] / 2:
+            r_max = r_max - self.config.net_input_size[0]
+        if c_max > self.config.net_input_size[1] / 2:
+            c_max = c_max - self.config.net_input_size[1]
+        window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
+        pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
+        psr = PSR(response_best_scale)
+        apce = APCE(response_best_scale)
+        return pos_diff, psr, apce, []
+
+    def runRotationAnalysis(self, im, cand_pos):
+        rotation_patches = np.zeros((5, self.patch_crop.shape[1], self.patch_crop.shape[2], self.patch_crop.shape[3]), np.float32)  # buff
+        window_sz = self.target_sz * (1 + self.config.padding)
+        bbox = cxy_wh_2_bbox(cand_pos, window_sz)
+        crop_ = crop_chw(im, bbox, self.config.crop_sz)
+        crop = np.transpose(crop_, (1,2,0))
+        rotation_patches[0,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE),(2,0,1))
+        rotation_patches[1,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_180),(2,0,1))
+        rotation_patches[2,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_COUNTERCLOCKWISE),(2,0,1))
+        rotation_patches[3,:] = np.transpose(cv2.flip(crop, 0), (2,0,1))
+        rotation_patches[4,:] = np.transpose(cv2.flip(crop, 1), (2,0,1))
+
+        PSRs = []
+        APCEs = []
+        search = convert_format(rotation_patches, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
+        if self.gpu:
+            response = self.net(torch.Tensor(search).cuda())
+        else:
+            response = self.net(torch.Tensor(search))
+        for i in range(5):
+            psr = PSR(torch.squeeze(response[i,:]).cpu().detach().numpy())
+            apce = APCE(torch.squeeze(response[i,:]).cpu().detach().numpy())
+            PSRs.append(psr)
+            APCEs.append(apce)
+        return PSRs, APCEs

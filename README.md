@@ -14,14 +14,12 @@ See `requirement.txt`
 #### DCFNet
 `DCFNet()` in `models/DCFnet.py` is for training, which takes (template, search) as input for the `forward` method <br>
 `DCFNet()` in `models/DCFnet_track.py` is for tracking and re-id testing in `test.py`, which only takes (search) as input for the `forward` method, and updates the template in the `update` method. <br>
-`DCFNetTracker()` in `models/DCFnet_track.py` can be used for continous tracking with the `track` method <br>
-`DCFNetTracker_reIdTest()` in `test.py` is used for re-id test with special methods `runResponseAnalysis`, `runRotationAnalysis`<br>
+`DCFNetTracker()` in `models/DCFnet_track.py` can be used for continous tracking with the `track` method and re-id testing with the `runResponseAnalysis`, `runRotationAnalysis` methods <br>
 #### SqueezeCFNet
 `SqueezeCFNet()` in `models/squeezeCFnet.py` is for training, which takes (template, search, negative) as input for the `forward` method <br>
 `SqueezeCFNet()` in `models/squeezeCFnet_track.py` is for tracking and re-id testing in `test.py`, which only takes (search) as input for the `forward` method, and updates the template in the `update` method. <br>
+`SqueezeCFNetTracker()` in `models/squeezeCFnet_track.py` can be used for continous tracking with the `track` method and re-id testing with the `runResponseAnalysis`, `runRotationAnalysis` methods <br>
 `SqueezeCFNet_light()` in `models/squeezeCFnet_track.py` is for tracking and speed testing in `speed_test.py`, which skips the encoding stage and only process the shallow part of the network in forward pass.
-`SqueezeCFNetTracker()` in `models/track.py` can be used for continous tracking with the `track` method <br>
-`SqueezeCFNetTracker_reIdTest()` in `test.py` is used for re-id test with special methods `runResponseAnalysis`, `runRotationAnalysis` <br>
 
 ##  Step 1: Curate dataset
 - Raw training and validation data are downloaded from [FathomNet](https://www.mbari.org/data/fathomnet/) using the [fathomnet-py](https://fathomnet-py.readthedocs.io/en/latest/) API. Examples of the raw FathomNet data are `curate_dataset/data_sample/FathomNet_sample.*` <br>
@@ -68,7 +66,7 @@ Use the function `processImSeq` in `demo.py` to perform tracking in continous im
 Use the function `analyzeImSeq` in `demo.py` to get confidence scores on all labeled object from three different types of trackers. <br>
 need to update the image sequence directory in script before use.
 - Speed test
-Run `speed_test.py` and replace the image sequence directory in script before use. 
+Run `speed_test.py` and replace the image sequence directory in script before use.
 
 ### Acknowledgement
 The KCF with HOG feature tracker in `baseline` referenced [pyTrackers](https://github.com/fengyang95/pyCFTrackers) under the MIT license. <br>

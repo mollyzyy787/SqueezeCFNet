@@ -11,278 +11,9 @@ import scipy.io
 from dataset import FNTDataset
 from curate_dataset.parse_annotation import parseManualAnnotation
 from baseline.kcf import KCF_HOG
-from models.squeezeCFnet_track import FeatSqueezeNet, complex_mul, complex_mulconj
-from models.DCFnet_track import TrackerConfig_DCFNet, DCFNet
-from track import TrackerConfig
+from models.squeezeCFnet_track import TrackerConfig, SqueezeCFNetTracker
+from models.DCFnet_track import TrackerConfig_DCFNet, DCFNetTracker
 from utils import crop_chw, gaussian_shaped_labels, cxy_wh_2_rect1, rect1_2_cxy_wh, cxy_wh_2_bbox, convert_format, PSR, APCE
-
-class SqueezeCFNet_reIdTest(nn.Module):
-    def __init__(self, config=None, kernel='linear'):
-        super().__init__()
-        self.feature_net = FeatSqueezeNet()
-        self.model_alphaf = []
-        self.model_zf = []
-        self.config = config
-        self.use_fire_layer = config.use_fire_layer
-        self.kernel = kernel
-        self.sigma = 0.5
-        self.model_encode = []
-
-    def extract_feature(self, x):
-        x_encode, x1_map, x2_map, x3_map = self.feature_net(x)
-        if self.use_fire_layer == "1":
-            x_map = x1_map
-        elif self.use_fire_layer == "2":
-            x_map = x2_map
-        elif self.use_fire_layer == "3":
-            x_map = x3_map
-        else:
-            x_map = torch.cat((x1_map, x2_map, x3_map), dim=1)
-            # add possible channel reduction tricks?
-        x_map = x_map * self.config.cos_window
-        return x_map, x_encode
-
-    def gaussian_kernel_correlation(self, x, y):
-        xf = torch.fft.rfft2(x, norm="ortho")
-        yf = torch.fft.rfft2(y, norm="ortho")
-        N=xf.shape[-2]*xf.shape[-1]
-        xf_size = N*xf.shape[-3]
-        xx = (x.flatten(start_dim=1)*x.flatten(start_dim=1)).sum(dim=1)
-        yy = (y.flatten(start_dim=1)*y.flatten(start_dim=1)).sum(dim=1)
-        xyf = xf*yf.conj()
-        xy=torch.fft.irfft2(torch.sum(xyf, dim=1), norm="ortho")
-        xy_size = xy.shape[-2]*xy.shape[-1]
-        kf = torch.fft.rfft2(torch.exp(-1 / self.sigma ** 2 * (torch.clamp(xx.real[:,None,None]+yy.real[:,None,None]-2*xy.real,min=0)+1e-5)/xf_size), norm="ortho")
-        #kf = torch.fft.rfft2(torch.exp(-1 / self.sigma ** 2 * (torch.abs(xx[:,None,None]+yy[:,None,None]-2*xy)+1e-5)/xf_size), norm="ortho")
-        return kf[:, None, :, :]
-
-    def forward(self, x): #z is template, x is search (or query), n is negative
-        x_map, x_encode = self.extract_feature(x)
-        if self.kernel=='gaussian':
-            z_map = torch.fft.irfft2(self.model_zf, norm='ortho')
-            kxzf = self.gaussian_kernel_correlation(x_map, z_map)
-            response = torch.fft.irfft2(kxzf*torch.view_as_complex(self.model_alphaf), norm="ortho")
-        else:
-            xf = torch.view_as_real(torch.fft.rfft2(x_map, norm="ortho"))
-            kxzf = torch.sum(complex_mulconj(xf, self.model_zf), dim=1, keepdim=True)
-            response = torch.fft.irfft2(torch.view_as_complex(complex_mul(kxzf, self.model_alphaf)), norm="ortho")
-        return [response, x_encode]
-
-    def update(self, z, lr=1.):
-        z_map, z_encode = self.extract_feature(z)
-        if self.kernel=='gaussian':
-            zf = torch.fft.rfft2(z_map, norm="ortho")
-            kzzf = self.gaussian_kernel_correlation(z_map, z_map)
-            kzzf = torch.view_as_real(kzzf)
-        else:
-            zf = torch.view_as_real(torch.fft.rfft2(z_map, norm="ortho")) # converts complex tensor to real reprensentation with dim (*,2)
-            kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1, keepdim=True)
-        alphaf = self.config.yf / (kzzf + self.config.lambda0) #yf shape:  torch.Size([1, 1, 48, 25, 2])
-        # in re-id testing, templates are saved at command instead of using adaptive updating function
-        if lr > 0.99:
-            self.model_alphaf = alphaf
-            self.model_zf = zf
-        else:
-            self.model_alphaf = (1 - lr) * self.model_alphaf.data + lr * alphaf.data
-            self.model_zf = (1 - lr) * self.model_zf.data + lr * zf.data
-        self.model_encode = z_encode
-
-    def load_param(self, path):
-        checkpoint = torch.load(path)
-        if 'state_dict' in checkpoint.keys():  # from training result
-            state_dict = checkpoint['state_dict']
-            self.load_state_dict(state_dict)
-            print("loaded model state_dict")
-        else:
-            self.feature_net.load_state_dict(checkpoint)
-
-class SqueezeCFNetTracker_reIdTest(object):
-    def __init__(self, im, init_rect, net_param_path, gpu=True):
-        self.gpu = gpu
-        self.config = TrackerConfig(path=net_param_path, use_fire_layer="all", normalize=False)
-        self.net = SqueezeCFNet_reIdTest(self.config)
-        self.net.load_param(self.config.feature_path)
-        self.net.eval()
-        if self.gpu:
-            self.net.cuda()
-
-        # confine results
-        target_pos, target_sz = rect1_2_cxy_wh(init_rect) #convert initial bb to pos and sz
-        self.min_sz = np.maximum(self.config.min_scale_factor * target_sz, 4)
-        self.max_sz = np.minimum(im.shape[:2], self.config.max_scale_factor * target_sz)
-
-        # crop template
-        window_sz = target_sz * (1 + self.config.padding)
-        bbox = cxy_wh_2_bbox(target_pos, window_sz)
-        patch = crop_chw(im, bbox, self.config.crop_sz) #output is numpy array
-        patch = np.expand_dims(patch, axis=0).astype(np.float32)
-
-        target = convert_format(patch, self.config.normalize, self.config.mean, self.config.std) #replaced: target = patch - config.net_average_image
-
-        if self.gpu:
-            self.net.update(target.cuda()) #self.net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
-        else:
-            self.net.update(target)
-        self.target_pos, self.target_sz = target_pos, target_sz
-        self.patch_crop = np.zeros((self.config.num_scale, patch.shape[1], patch.shape[2], patch.shape[3]), np.float32)  # buff
-
-
-    def update(self, img, cand_pos):
-        window_sz = self.target_sz *  (1 + self.config.padding)
-        bbox  = cxy_wh_2_bbox(cand_pos, window_sz)
-        new_template = crop_chw(img, bbox, self.config.crop_sz)
-        new_template = convert_format(new_template[None, :], self.config.normalize, self.config.mean, self.config.std)
-        if self.gpu:
-            self.net.update(torch.Tensor(new_template).cuda())
-        else:
-            self.net.update(torch.Tensor(new_template))
-
-    def runResponseAnalysis(self, im, cand_pos):
-        for i in range(self.config.num_scale):  # crop multi-scale search region
-            window_sz = self.target_sz * (self.config.scale_factor[i] * (1 + self.config.padding))
-            bbox = cxy_wh_2_bbox(cand_pos, window_sz)
-            self.patch_crop[i, :] = crop_chw(im, bbox, self.config.crop_sz)
-
-        search = convert_format(self.patch_crop, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
-        if self.gpu:
-            [response, encode] = self.net(torch.Tensor(search).cuda())
-        else:
-            [response, encode] = self.net(torch.Tensor(search))
-        #print("response: ", response.shape) #(1, 3, 48, 48) for gaussian kernel, (3, 1, 48, 48) for linear kernel
-        peak, idx = torch.max(response.view(self.config.num_scale, -1), 1) #(3, 48*48)
-        peak = peak.data.cpu().numpy() * self.config.scale_penalties
-        idx = idx.data.cpu().numpy()
-        best_scale = np.argmax(peak)
-        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
-        response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
-
-        if r_max > self.config.net_input_size[0] / 2:
-            r_max = r_max - self.config.net_input_size[0]
-        if c_max > self.config.net_input_size[1] / 2:
-            c_max = c_max - self.config.net_input_size[1]
-        window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
-        pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
-        psr = PSR(response_best_scale)
-        apce = APCE(response_best_scale)
-        return pos_diff, psr, apce, []
-
-    def runRotationAnalysis(self, im, cand_pos):
-        rotation_patches = np.zeros((5, self.patch_crop.shape[1], self.patch_crop.shape[2], self.patch_crop.shape[3]), np.float32)  # buff
-        window_sz = self.target_sz * (1 + self.config.padding)
-        bbox = cxy_wh_2_bbox(cand_pos, window_sz)
-        crop_ = crop_chw(im, bbox, self.config.crop_sz)
-        crop = np.transpose(crop_, (1,2,0))
-        rotation_patches[0,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE),(2,0,1))
-        rotation_patches[1,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_180),(2,0,1))
-        rotation_patches[2,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_COUNTERCLOCKWISE),(2,0,1))
-        rotation_patches[3,:] = np.transpose(cv2.flip(crop, 0), (2,0,1))
-        rotation_patches[4,:] = np.transpose(cv2.flip(crop, 1), (2,0,1))
-
-        PSRs = []
-        APCEs = []
-        search = convert_format(rotation_patches, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
-        if self.gpu:
-            [response, encode] = self.net(torch.Tensor(search).cuda())
-        else:
-            [response, encode] = self.net(torch.Tensor(search))
-        for i in range(5):
-            psr = PSR(torch.squeeze(response[i,:]).cpu().detach().numpy())
-            apce = APCE(torch.squeeze(response[i,:]).cpu().detach().numpy())
-            PSRs.append(psr)
-            APCEs.append(apce)
-        return PSRs, APCEs
-
-class DCFNetTracker_reIdTest(object):
-    def __init__(self, im, init_rect, net_param_path, gpu=True):
-        self.gpu = gpu
-        self.config = TrackerConfig_DCFNet(normalize=False)
-        self.net_para_path = net_param_path
-        self.net = DCFNet(self.config)
-        self.net.load_param(net_param_path)
-        self.net.eval()
-        if self.gpu:
-            self.net.cuda()
-
-        # confine results
-        target_pos, target_sz = rect1_2_cxy_wh(init_rect) #convert initial bb to pos and sz
-        self.min_sz = np.maximum(self.config.min_scale_factor * target_sz, 4)
-        self.max_sz = np.minimum(im.shape[:2], self.config.max_scale_factor * target_sz)
-
-        # crop template
-        window_sz = target_sz * (1 + self.config.padding)
-        bbox = cxy_wh_2_bbox(target_pos, window_sz)
-        patch = crop_chw(im, bbox, self.config.crop_sz) #output is numpy array
-        patch = np.expand_dims(patch, axis=0).astype(np.float32)
-
-        target = convert_format(patch, self.config.normalize, self.config.mean, self.config.std) #replaced: target = patch - config.net_average_image
-        #print(type(target), target.shape)
-        self.net.update(target.cuda()) #self.net.update(torch.Tensor(np.expand_dims(target, axis=0)).cuda())
-        self.target_pos, self.target_sz = target_pos, target_sz
-        self.patch_crop = np.zeros((self.config.num_scale, patch.shape[1], patch.shape[2], patch.shape[3]), np.float32)  # buff
-
-    def update(self, img, cand_pos):
-        window_sz = self.target_sz *  (1 + self.config.padding)
-        bbox  = cxy_wh_2_bbox(cand_pos, window_sz)
-        new_template = crop_chw(img, bbox, self.config.crop_sz)
-        new_template = convert_format(new_template[None, :], self.config.normalize, self.config.mean, self.config.std)
-        self.net.update(torch.Tensor(new_template).cuda())
-
-    def runResponseAnalysis(self, im, cand_pos):
-        for i in range(self.config.num_scale):  # crop multi-scale search region
-            window_sz = self.target_sz * (self.config.scale_factor[i] * (1 + self.config.padding))
-            bbox = cxy_wh_2_bbox(cand_pos, window_sz)
-            self.patch_crop[i, :] = crop_chw(im, bbox, self.config.crop_sz)
-
-        search = convert_format(self.patch_crop, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
-
-        if self.gpu:
-            response = self.net(torch.Tensor(search).cuda())
-        else:
-            response = self.net(torch.Tensor(search))
-        #print("response: ", response.shape) #(1, 3, 48, 48) for gaussian kernel, (3, 1, 48, 48) for linear kernel
-        peak, idx = torch.max(response.view(self.config.num_scale, -1), 1) #(3, 48*48)
-        peak = peak.data.cpu().numpy() * self.config.scale_penalties
-        idx = idx.data.cpu().numpy()
-        best_scale = np.argmax(peak)
-        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
-        response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
-
-
-        if r_max > self.config.net_input_size[0] / 2:
-            r_max = r_max - self.config.net_input_size[0]
-        if c_max > self.config.net_input_size[1] / 2:
-            c_max = c_max - self.config.net_input_size[1]
-        window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
-        pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
-        psr = PSR(response_best_scale)
-        apce = APCE(response_best_scale)
-        return pos_diff, psr, apce, []
-
-    def runRotationAnalysis(self, im, cand_pos):
-        rotation_patches = np.zeros((5, self.patch_crop.shape[1], self.patch_crop.shape[2], self.patch_crop.shape[3]), np.float32)  # buff
-        window_sz = self.target_sz * (1 + self.config.padding)
-        bbox = cxy_wh_2_bbox(cand_pos, window_sz)
-        crop_ = crop_chw(im, bbox, self.config.crop_sz)
-        crop = np.transpose(crop_, (1,2,0))
-        rotation_patches[0,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE),(2,0,1))
-        rotation_patches[1,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_180),(2,0,1))
-        rotation_patches[2,:] = np.transpose(cv2.rotate(crop, cv2.ROTATE_90_COUNTERCLOCKWISE),(2,0,1))
-        rotation_patches[3,:] = np.transpose(cv2.flip(crop, 0), (2,0,1))
-        rotation_patches[4,:] = np.transpose(cv2.flip(crop, 1), (2,0,1))
-
-        PSRs = []
-        APCEs = []
-        search = convert_format(rotation_patches, self.config.normalize, self.config.mean, self.config.std) #search = self.patch_crop - self.config.net_average_image
-        if self.gpu:
-            response = self.net(torch.Tensor(search).cuda())
-        else:
-            response = self.net(torch.Tensor(search))
-        for i in range(5):
-            psr = PSR(torch.squeeze(response[i,:]).cpu().detach().numpy())
-            apce = APCE(torch.squeeze(response[i,:]).cpu().detach().numpy())
-            PSRs.append(psr)
-            APCEs.append(apce)
-        return PSRs, APCEs
 
 def list_mean(list):
     return sum(list)/len(list)
@@ -309,9 +40,9 @@ def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=F
     img0_path = os.path.join(imSeq_dir, str(0).zfill(6)+".jpg")
     img0 = cv2.imread(img0_path)
     if model == 'squeezeCF':
-        tracker=SqueezeCFNetTracker_reIdTest(img0, init_rect, net_param_path)
+        tracker=SqueezeCFNetTracker(img0, init_rect, net_param_path)
     elif model == 'DCFNet':
-        tracker = DCFNetTracker_reIdTest(img0, init_rect, net_param_path)
+        tracker = DCFNetTracker(img0, init_rect, net_param_path)
     elif model == 'hog':
         tracker = KCF_HOG()
         tracker.init(img0,init_rect)
@@ -445,9 +176,9 @@ def processTrainValDataset(json_file_path, tracker_model='squeezeCF', net_param_
             target_pos = [img_w/2, img_h/2]
             if item_id == 0: #initialize tracker at the first item
                 if tracker_model=='squeezeCF':
-                    tracker=SqueezeCFNetTracker_reIdTest(img, init_rect, net_param_path)
+                    tracker=SqueezeCFNetTracker(img, init_rect, net_param_path)
                 elif tracker_model == 'DCFNet':
-                    tracker = DCFNetTracker_reIdTest(img, init_rect, net_param_path)
+                    tracker = DCFNetTracker(img, init_rect, net_param_path)
                 else:
                     tracker = KCF_HOG()
                     tracker.init(img,init_rect)
@@ -507,8 +238,8 @@ def processRotationTest(imSeq_dir, SqueezeCFnet_param_path, DCFnet_param_path):
             #save template
     img0_path = os.path.join(imSeq_dir, str(0).zfill(6)+".jpg")
     img0 = cv2.imread(img0_path)
-    SCF_tracker=SqueezeCFNetTracker_reIdTest(img0, init_rect, SqueezeCFnet_param_path)
-    DCF_tracker = DCFNetTracker_reIdTest(img0, init_rect, DCFnet_param_path)
+    SCF_tracker=SqueezeCFNetTracker(img0, init_rect, SqueezeCFnet_param_path)
+    DCF_tracker = DCFNetTracker(img0, init_rect, DCFnet_param_path)
     hog_tracker = KCF_HOG()
     hog_tracker.init(img0,init_rect)
     for frame_number in sorted(annotation.keys()):
@@ -539,10 +270,6 @@ def processRotationTest(imSeq_dir, SqueezeCFnet_param_path, DCFnet_param_path):
                 #print("DCF APCEs: ", DCF_APCEs)
     return hog_PSRs_total, hog_APCEs_total, SCF_PSRs_total, SCF_APCEs_total, DCF_PSRs_total, DCF_APCEs_total
 
-
-
-
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Testing SqueezeCFNet with baselines in Pytorch 1.12.1')
@@ -561,6 +288,7 @@ if __name__ == '__main__':
     seqs = dataset_root + '/*/'
     test_mode = args.test_mode
     test_models = ['squeezeCF', 'DCFNet', 'hog']
+    model2path={'squeezeCF':SqueezeCFnet_param_path, 'DCFNet':DCFnet_param_path, 'hog':''}
     if test_mode == 0: #test re-id on image sequence data
         print("Testing re-id on image sequence data")
         for model in test_models:
@@ -580,7 +308,7 @@ if __name__ == '__main__':
             for imSeq_dir in glob.glob(seqs):
                 seqName = imSeq_dir.split('/')[-2]
                 PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list, APCE_p_list, APCE_n_list, acc_list \
-                    = processTestImSeq(imSeq_dir, SqueezeCFnet_param_path, model=model, update=False)
+                    = processTestImSeq(imSeq_dir, model2path[model], model=model, update=False)
                 if PSR_p_list and PSR_n_list:
                     out["PSR_p_lists"][seqName] = PSR_p_list
                     out["PSR_n_lists"][seqName] = PSR_n_list

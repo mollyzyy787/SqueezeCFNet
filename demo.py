@@ -2,10 +2,10 @@ import cv2
 import json
 import os
 import torch
-from track import TrackerConfig,SqueezeCFNetTracker
+from models.squeezeCFnet_track import TrackerConfig, SqueezeCFNetTracker
+from models.DCFnet_track import DCFNetTracker
 from curate_dataset.parse_annotation import parseManualAnnotation
 import glob
-from test import SqueezeCFNetTracker_reIdTest, DCFNetTracker_reIdTest
 from baseline.kcf import KCF_HOG
 from utils import crop_chw, gaussian_shaped_labels, cxy_wh_2_rect1, rect1_2_cxy_wh, cxy_wh_2_bbox, convert_format, PSR, APCE
 
@@ -14,8 +14,12 @@ def processImSeq(img_folder, net_param_path, result_path, saveVid=False):
     all img folder in testset includes image sequences and an annotation.json file
     which contains the info from manual labelling
     """
-    annotation_path = glob.glob(os.path.join(img_folder, '*.json'))[0]
-    annotation = parseManualAnnotation(annotation_path)
+    if glob.glob(os.path.join(imSeq_dir, '*.json')):
+        annotation_path = glob.glob(os.path.join(imSeq_dir, '*.json'))[0]
+        annotation = parseManualAnnotation(annotation_path)
+    else:
+        print("no annotation json file")
+        return
     # find the sequence name, to save the result in a folder under the same name
     seqName = img_folder.split('/')[-1]
     if not seqName:
@@ -59,8 +63,12 @@ def analyzeImSeq(imSeq_dir, result_path, DCFNet_param_path, SqueezeCFnet_param_p
     all img folder in testset includes image sequences and an annotation.json file
     which contains the info from manual labelling
     """
-    annotation_path = glob.glob(os.path.join(imSeq_dir, '*.json'))[0]
-    annotation = parseManualAnnotation(annotation_path)
+    if glob.glob(os.path.join(imSeq_dir, '*.json')):
+        annotation_path = glob.glob(os.path.join(imSeq_dir, '*.json'))[0]
+        annotation = parseManualAnnotation(annotation_path)
+    else:
+        print("no annotation json file")
+        return
     # find the sequence name, to save the result in a folder under the same name
     seqName = imSeq_dir.split('/')[-1]
     if not seqName:
@@ -74,8 +82,8 @@ def analyzeImSeq(imSeq_dir, result_path, DCFNet_param_path, SqueezeCFnet_param_p
             init_rect = obj["bbox"]
     img0_path = os.path.join(imSeq_dir, str(0).zfill(6)+".jpg")
     img0 = cv2.imread(img0_path)
-    SqueezeCFNet_tracker = SqueezeCFNetTracker_reIdTest(img0, init_rect, SqueezeCFnet_param_path)
-    DCFNet_tracker = DCFNetTracker_reIdTest(img0, init_rect, DCFNet_param_path)
+    SqueezeCFNet_tracker = SqueezeCFNetTracker(img0, init_rect, SqueezeCFnet_param_path)
+    DCFNet_tracker = DCFNetTracker(img0, init_rect, DCFNet_param_path)
     hog_tracker = KCF_HOG()
     hog_tracker.init(img0,init_rect)
     thickness = 2
@@ -130,10 +138,10 @@ def analyzeImSeq(imSeq_dir, result_path, DCFNet_param_path, SqueezeCFnet_param_p
 if __name__ == '__main__':
     SqueezeCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'apce_enc_200ep_1e-4_best.pt')
     DCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'model_best_DCFnet_200ep.pt')
-    result_path = 'Your_result_path'
+    result_path =  'Your_result_path'
     imSeq_dir = 'Your_imSeq_dir'
     """
-    processImSeq('/media/molly/MR_GRAY/DCNNCF_testset/mo20_left', net_param_path,
+    processImSeq(imSeq_dir, SqueezeCFnet_param_path,
                 result_path, True)
     """
     analyzeImSeq(imSeq_dir, result_path, DCFnet_param_path, SqueezeCFnet_param_path)
