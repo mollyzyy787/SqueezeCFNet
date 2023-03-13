@@ -2,7 +2,9 @@
 An architecture for learning the feature representations for target re-identification
 in long-term DCF Tracking <br>
 
-**Documentation to be updated
+## Acknowledgement
+The KCF with HOG feature tracker in `baseline` referenced [pyTrackers](https://github.com/fengyang95/pyCFTrackers) under the MIT license. <br>
+The DCFNet baseline in `models` referenced [DCFNet](https://github.com/foolwood/DCFNet_pytorch) under the MIT license.
 
 ## Environment
 See `requirement.txt`
@@ -19,7 +21,7 @@ See `requirement.txt`
 `SqueezeCFNet()` in `models/squeezeCFnet.py` is for training, which takes (template, search, negative) as input for the `forward` method <br>
 `SqueezeCFNet()` in `models/squeezeCFnet_track.py` is for tracking and re-id testing in `test.py`, which only takes (search) as input for the `forward` method, and updates the template in the `update` method. <br>
 `SqueezeCFNetTracker()` in `models/squeezeCFnet_track.py` can be used for continous tracking with the `track` method and re-id testing with the `runResponseAnalysis`, `runRotationAnalysis` methods <br>
-`SqueezeCFNet_light()` in `models/squeezeCFnet_track.py` is for tracking and speed testing in `speed_test.py`, which skips the encoding stage and only process the shallow part of the network in forward pass.
+`SqueezeCFNet_light()` and `SqueezeCFNetTracker_light()` in `models/squeezeCFnet_track.py` is for tracking and speed testing in `speed_test.py`, which skips the encoding stage and only process the shallow part of the network in forward pass.
 
 ##  Step 1: Curate dataset
 - Raw training and validation data are downloaded from [FathomNet](https://www.mbari.org/data/fathomnet/) using the [fathomnet-py](https://fathomnet-py.readthedocs.io/en/latest/) API. Examples of the raw FathomNet data are `curate_dataset/data_sample/FathomNet_sample.*` <br>
@@ -61,13 +63,9 @@ The image sequences for testing need to be of the following structure. Each imag
 │   │   ├── annotation.json
 ```
 ### Demo
-- Demo
+- Demo <br>
 Use the function `processImSeq` in `demo.py` to perform tracking in continous image sequences.  <br>
 Use the function `analyzeImSeq` in `demo.py` to get confidence scores on all labeled object from three different types of trackers. <br>
-need to update the image sequence directory in script before use.
-- Speed test
-Run `speed_test.py` and replace the image sequence directory in script before use.
-
-### Acknowledgement
-The KCF with HOG feature tracker in `baseline` referenced [pyTrackers](https://github.com/fengyang95/pyCFTrackers) under the MIT license. <br>
-The DCFNet baseline in `models` referenced [DCFNet](https://github.com/foolwood/DCFNet_pytorch) under the MIT license.
+need to update the image sequence directory in script before use. <br>
+- Speed test <br>
+Run `speed_test.py` and replace the image sequence directory in script before use.<br>
