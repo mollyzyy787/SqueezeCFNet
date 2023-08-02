@@ -258,7 +258,7 @@ class SqueezeCFNetTracker(object):
         peak = peak.data.cpu().numpy() * self.config.scale_penalties
         idx = idx.data.cpu().numpy()
         best_scale = np.argmax(peak)
-        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
+        r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
 
         if r_max > self.config.net_input_size[0] / 2:
             r_max = r_max - self.config.net_input_size[0]
@@ -309,7 +309,7 @@ class SqueezeCFNetTracker(object):
         peak = peak.data.cpu().numpy() * self.config.scale_penalties
         idx = idx.data.cpu().numpy()
         best_scale = np.argmax(peak)
-        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
+        r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
         response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
 
         if r_max > self.config.net_input_size[0] / 2:
@@ -520,7 +520,7 @@ class SqueezeCFNetTracker_light(object):
         peak = peak.data.cpu().numpy() * self.config.scale_penalties
         idx = idx.data.cpu().numpy()
         best_scale = np.argmax(peak)
-        r_max, c_max = np.unravel_index(idx[best_scale], self.config.net_input_size)
+        r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
 
         if r_max > self.config.net_input_size[0] / 2:
             r_max = r_max - self.config.net_input_size[0]
