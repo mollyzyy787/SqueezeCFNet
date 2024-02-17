@@ -213,9 +213,9 @@ class SqueezeCFNet(nn.Module):
             self.feature_net.load_state_dict(checkpoint)
 
 class SqueezeCFNetTracker(object):
-    def __init__(self, im, init_rect, net_param_path, gpu=True):
+    def __init__(self, im, init_rect, net_param_path, gpu=True, use_fire_layer='all'):
         self.gpu = gpu
-        self.config = TrackerConfig(path=net_param_path, use_fire_layer="all", normalize=False)
+        self.config = TrackerConfig(path=net_param_path, use_fire_layer=use_fire_layer, normalize=False)
         self.net = SqueezeCFNet(self.config)
         self.net.load_param(self.config.feature_path)
         self.net.eval()
@@ -260,13 +260,18 @@ class SqueezeCFNetTracker(object):
         best_scale = np.argmax(peak)
         r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
 
-        if r_max > self.config.net_input_size[0] / 2:
-            r_max = r_max - self.config.net_input_size[0]
-        if c_max > self.config.net_input_size[1] / 2:
-            c_max = c_max - self.config.net_input_size[1]
+        # if r_max > self.config.net_input_size[0] / 2:
+        #     r_max = r_max - self.config.net_input_size[0]
+        # if c_max > self.config.net_input_size[1] / 2:
+        #     c_max = c_max - self.config.net_input_size[1]
+        if r_max > self.config.output_sz / 2:
+            r_max = r_max - self.config.output_sz
+        if c_max > self.config.output_sz / 2:
+            c_max = c_max - self.config.output_sz
+
         window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
 
-        self.target_pos = self.target_pos + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
+        self.target_pos = self.target_pos + np.array([c_max, r_max]) * window_sz / self.config.output_sz
         self.target_sz = np.minimum(np.maximum(window_sz / (1 + self.config.padding), self.min_sz), self.max_sz)
 
         # model update
@@ -312,12 +317,16 @@ class SqueezeCFNetTracker(object):
         r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
         response_best_scale = torch.squeeze(response[best_scale,:,:,:]).cpu().detach().numpy()
 
-        if r_max > self.config.net_input_size[0] / 2:
-            r_max = r_max - self.config.net_input_size[0]
-        if c_max > self.config.net_input_size[1] / 2:
-            c_max = c_max - self.config.net_input_size[1]
+        # if r_max > self.config.net_input_size[0] / 2:
+        #     r_max = r_max - self.config.net_input_size[0]
+        # if c_max > self.config.net_input_size[1] / 2:
+        #     c_max = c_max - self.config.net_input_size[1]
+        if r_max > self.config.output_sz / 2:
+            r_max = r_max - self.config.output_sz
+        if c_max > self.config.output_sz / 2:
+            c_max = c_max - self.config.output_sz
         window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
-        pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.net_input_size)
+        pos_diff = np.linalg.norm(np.array([c_max, r_max]) * window_sz / self.config.output_sz)
         psr = PSR(response_best_scale)
         apce = APCE(response_best_scale)
         return pos_diff, psr, apce, []
@@ -522,13 +531,18 @@ class SqueezeCFNetTracker_light(object):
         best_scale = np.argmax(peak)
         r_max, c_max = np.unravel_index(idx[best_scale], [self.config.output_sz, self.config.output_sz])
 
-        if r_max > self.config.net_input_size[0] / 2:
-            r_max = r_max - self.config.net_input_size[0]
-        if c_max > self.config.net_input_size[1] / 2:
-            c_max = c_max - self.config.net_input_size[1]
+        # if r_max > self.config.net_input_size[0] / 2:
+        #     r_max = r_max - self.config.net_input_size[0]
+        # if c_max > self.config.net_input_size[1] / 2:
+        #     c_max = c_max - self.config.net_input_size[1]
+        if r_max > self.config.output_sz / 2:
+            r_max = r_max - self.config.output_sz
+        if c_max > self.config.output_sz / 2:
+            c_max = c_max - self.config.output_sz
+        
         window_sz = self.target_sz * (self.config.scale_factor[best_scale] * (1 + self.config.padding))
 
-        self.target_pos = self.target_pos + np.array([c_max, r_max]) * window_sz / self.config.net_input_size
+        self.target_pos = self.target_pos + np.array([c_max, r_max]) * window_sz / self.config.output_sz
         self.target_sz = np.minimum(np.maximum(window_sz / (1 + self.config.padding), self.min_sz), self.max_sz)
 
         # model update

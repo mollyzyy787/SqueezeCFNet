@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import glob
 import scipy.io
+import datetime
 
 from dataset import FNTDataset
 from curate_dataset.parse_annotation import parseManualAnnotation
@@ -18,7 +19,7 @@ from utils import crop_chw, gaussian_shaped_labels, cxy_wh_2_rect1, rect1_2_cxy_
 def list_mean(list):
     return sum(list)/len(list)
 
-def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=False):
+def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=False, use_fire_layer='all'):
     PSR_p_list = []
     pos_diff_p_list = []
     PSR_n_list = []
@@ -40,7 +41,7 @@ def processTestImSeq(imSeq_dir, net_param_path=None, model='squeezeCF', update=F
     img0_path = os.path.join(imSeq_dir, str(0).zfill(6)+".jpg")
     img0 = cv2.imread(img0_path)
     if model == 'squeezeCF':
-        tracker=SqueezeCFNetTracker(img0, init_rect, net_param_path)
+        tracker=SqueezeCFNetTracker(img0, init_rect, net_param_path, use_fire_layer=use_fire_layer)
     elif model == 'DCFNet':
         tracker = DCFNetTracker(img0, init_rect, net_param_path)
     elif model == 'hog':
@@ -285,9 +286,29 @@ if __name__ == '__main__':
     DCFnet_param_path = os.path.join(os.getcwd(), 'checkpoints', 'model_best_DCFnet_200ep.pt')
     dataset_root = args.dataset_root
     json_file_path = args.json_file_path
-    seqs = dataset_root + '/*/'
     test_mode = args.test_mode
-    test_models = ['squeezeCF', 'DCFNet', 'hog']
+    #test_models = ['squeezeCF', 'DCFNet', 'hog']
+    test_models = ['squeezeCF']
+    
+    #cutoff_date = datetime.datetime(2023, 3, 1)
+    # pre-iros seq lists
+    #seqs_dirs = ['oov4_left', 'mo8_left', 'mo20_left', 'mo21_left', 'mo7_left', 'mo11_left', 'mo14_left', 
+            # 'mo16_left', 'mo19_left', 'mo9_left', 'mo_m8_mono', 'mo15_left', 'mo5_left', 'mo_m5_mono', 
+            # 'mo_m4_mono', 'mo13_left', 'mo12_left', 'change_mo2_left', 'mo4_left']
+    #seqs = [os.path.join(dataset_root, seq) for seq in seqs_dirs]
+    seqs = dataset_root + '/*/'
+    #seqs = []
+    # for dir_name in os.listdir(dataset_root):
+    #     dir_path = os.path.join(dataset_root, dir_name)
+
+    #     # Check if it is a directory
+    #     if os.path.isdir(dir_path):
+    #         modification_time = os.path.getmtime(dir_path)
+    #         modification_date = datetime.datetime.fromtimestamp(modification_time)
+
+    #         if modification_date < cutoff_date:
+    #             seqs.append(dir_path)
+
     model2path={'squeezeCF':SqueezeCFnet_param_path, 'DCFNet':DCFnet_param_path, 'hog':''}
     if test_mode == 0: #test re-id on image sequence data
         print("Testing re-id on image sequence data")
@@ -308,7 +329,7 @@ if __name__ == '__main__':
             for imSeq_dir in glob.glob(seqs):
                 seqName = imSeq_dir.split('/')[-2]
                 PSR_p_list, PSR_n_list, pos_diff_p_list, pos_diff_n_list, APCE_p_list, APCE_n_list, acc_list \
-                    = processTestImSeq(imSeq_dir, model2path[model], model=model, update=False)
+                    = processTestImSeq(imSeq_dir, model2path[model], model=model, update=False, use_fire_layer='3')
                 if PSR_p_list and PSR_n_list:
                     out["PSR_p_lists"][seqName] = PSR_p_list
                     out["PSR_n_lists"][seqName] = PSR_n_list
